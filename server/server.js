@@ -62,8 +62,7 @@ const allowedOrigins = (process.env.CLIENT_URL || 'http://localhost:5173')
   .filter(Boolean);
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
-    return callback(new Error('Origin not allowed by CORS'));
+    return callback(null, !origin || allowedOrigins.includes(origin));
   },
   credentials: true
 }));
@@ -71,6 +70,13 @@ app.use(helmet());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan('dev'));
+app.use('/api', (req, res, next) => {
+  const origin = req.get('origin');
+  if (origin && !allowedOrigins.includes(origin)) {
+    return res.status(403).json({ success: false, message: 'Origin not allowed' });
+  }
+  return next();
+});
 
 const SQL = await initSqlJs({
   locateFile: file => path.join(__dirname, '..', 'node_modules', 'sql.js', 'dist', file)
@@ -181,7 +187,7 @@ const setSessionCookie = (res, user, remember) => {
   const attributes = [
     `${sessionCookieName}=${createSessionToken(user)}`,
     'HttpOnly',
-    'SameSite=Lax',
+    `SameSite=${process.env.NODE_ENV === 'production' ? 'None' : 'Lax'}`,
     'Path=/'
   ];
   if (remember) attributes.push(`Max-Age=${sessionDurationSeconds}`);
@@ -190,7 +196,13 @@ const setSessionCookie = (res, user, remember) => {
 };
 
 const clearSessionCookie = (res) => {
-  const attributes = [`${sessionCookieName}=`, 'HttpOnly', 'SameSite=Lax', 'Path=/', 'Max-Age=0'];
+  const attributes = [
+    `${sessionCookieName}=`,
+    'HttpOnly',
+    `SameSite=${process.env.NODE_ENV === 'production' ? 'None' : 'Lax'}`,
+    'Path=/',
+    'Max-Age=0'
+  ];
   if (process.env.NODE_ENV === 'production') attributes.push('Secure');
   res.setHeader('Set-Cookie', attributes.join('; '));
 };
