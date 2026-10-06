@@ -52,6 +52,11 @@ const readApiResponse = async (response) => {
   try {
     return JSON.parse(responseText);
   } catch {
+    if (response.status === 404) {
+      throw new Error(
+        'The API route returned 404. Check that Vercel deployed the latest commit, the project Root Directory is the repository root, and /api/* is routed to the Express function.'
+      );
+    }
     const isHtml = response.headers.get('content-type')?.includes('text/html') ||
       /^\s*</.test(responseText);
     if (isHtml) {
