@@ -57,6 +57,12 @@ const readApiResponse = async (response) => {
         'The API route returned 404. Check that Vercel deployed the latest commit, the project Root Directory is the repository root, and /api/* is routed to the Express function.'
       );
     }
+    if (response.status >= 500) {
+      throw new Error(
+        `The API server failed (HTTP ${response.status}). Check the Vercel Function Runtime Logs. ` +
+        'If the logs mention JWT_SECRET, set it to a private value of at least 32 characters in the Production environment and redeploy.'
+      );
+    }
     const isHtml = response.headers.get('content-type')?.includes('text/html') ||
       /^\s*</.test(responseText);
     if (isHtml) {

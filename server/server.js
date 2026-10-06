@@ -129,12 +129,22 @@ const saveDatabase = () => {
 const usersWorkbookPath = path.join(dataDir, 'users.xlsx');
 const userWorkbookHeaders = ['User ID', 'Full Name', 'Email', 'Password', 'Created Date', 'Status'];
 const sessionCookieName = 'expensepro_session';
-const sessionSecret = process.env.JWT_SECRET || randomBytes(32).toString('hex');
+const sessionSecret = process.env.JWT_SECRET ||
+  (process.env.NODE_ENV === 'production' ? null : randomBytes(32).toString('hex'));
 const sessionDurationSeconds = 60 * 60 * 24 * 30;
 
-if (process.env.NODE_ENV === 'production' && (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32)) {
-  throw new Error('JWT_SECRET must be at least 32 characters in production');
-}
+const hasValidSessionSecret = process.env.NODE_ENV !== 'production' ||
+  (typeof sessionSecret === 'string' && sessionSecret.length >= 32);
+
+const requireSessionSecret = (_req, res, next) => {
+  if (!hasValidSessionSecret) {
+    return res.status(503).json({
+      success: false,
+      message: 'Authentication is not configured. Set JWT_SECRET to a private value of at least 32 characters in the Vercel Production environment, then redeploy.'
+    });
+  }
+  return next();
+};
 
 const normalizeEmail = (value) => String(value || '').trim().toLowerCase();
 const isValidEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
@@ -848,7 +858,7 @@ app.post('/api/auth/signup', (req, res) => {
   return res.status(201).json({ success: true, message: 'Account created successfully' });
 });
 
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', requireSessionSecret, (req, res) => {
   const { email, password } = req.body || {};
 
   if (typeof email !== 'string' || !email.trim() || typeof password !== 'string' || !password) {
@@ -889,7 +899,7 @@ app.get('/api/health', (_req, res) => {
   res.json({ success: true, message: 'ExpensePro API is healthy' });
 });
 
-app.get('/api/auth/session', (req, res) => {
+app.get('/api/auth/session', requireSessionSecret, (req, res) => {
   const user = readSessionUser(req);
   if (!user) {
     return res.status(401).json({ success: false, message: 'Authentication required' });
@@ -902,7 +912,7 @@ app.post('/api/auth/logout', (_req, res) => {
   res.json({ success: true, message: 'Signed out successfully' });
 });
 
-app.use('/api', requireAuthentication);
+app.use('/api', requireSessionSecret, requireAuthentication);
 
 app.get('/api/dashboard', (_req, res) => {
   try {
