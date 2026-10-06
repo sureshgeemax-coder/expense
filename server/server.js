@@ -4,6 +4,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { createHmac, randomBytes, scryptSync, timingSafeEqual } from 'crypto';
 import multer from 'multer';
@@ -14,7 +15,9 @@ import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const dataDir = path.join(__dirname, 'data');
+const dataDir = process.env.EXPENSEPRO_DATA_DIR || (process.env.VERCEL
+  ? path.join(os.tmpdir(), 'expensepro-data')
+  : path.join(__dirname, 'data'));
 const dbPath = path.join(dataDir, 'expensepro.sqlite');
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -56,13 +59,18 @@ const supportedCurrencies = currencySeed.map(item => item.code);
 const currencyRates = Object.fromEntries(currencySeed.map(item => [item.code, Number(item.exchange_rate)]));
 
 const app = express();
-const allowedOrigins = (process.env.CLIENT_URL || 'http://localhost:5173')
+const configuredOrigins = (process.env.CLIENT_URL || 'http://localhost:5173')
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
+const vercelOrigins = [
+  process.env.VERCEL_URL,
+  process.env.VERCEL_PROJECT_PRODUCTION_URL
+].filter(Boolean).map((host) => `https://${host}`);
+const allowedOrigins = new Set([...configuredOrigins, ...vercelOrigins]);
 app.use(cors({
   origin: (origin, callback) => {
-    return callback(null, !origin || allowedOrigins.includes(origin));
+    return callback(null, !origin || allowedOrigins.has(origin));
   },
   credentials: true
 }));
@@ -72,7 +80,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(morgan('dev'));
 app.use('/api', (req, res, next) => {
   const origin = req.get('origin');
-  if (origin && !allowedOrigins.includes(origin)) {
+  if (origin && !allowedOrigins.has(origin)) {
     return res.status(403).json({ success: false, message: 'Origin not allowed' });
   }
   return next();
@@ -1317,7 +1325,11 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ success: false, message: 'Something went wrong', errors: [err.message] });
 });
 
-const PORT = Number(process.env.PORT || 4000);
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`ExpensePro API listening on http://localhost:${PORT}`);
-});
+export default app;
+
+if (!process.env.VERCEL) {
+  const PORT = Number(process.env.PORT || 4000);
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`ExpensePro API listening on http://localhost:${PORT}`);
+  });
+}

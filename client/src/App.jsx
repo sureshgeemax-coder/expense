@@ -43,14 +43,9 @@ import {
   CircleDollarSign
 } from 'lucide-react';
 
-const configuredApiBase = import.meta.env.VITE_API_BASE_URL?.trim();
-const apiBase = configuredApiBase || (import.meta.env.DEV ? '/api' : '');
-const apiFetch = (resource, options = {}) => {
-  if (!apiBase) {
-    throw new Error('ExpensePro API is not configured. Deploy the Express API, set VITE_API_BASE_URL in Vercel to its URL ending in /api, then redeploy.');
-  }
-  return fetch(`${apiBase}${resource}`, { ...options, credentials: 'include' });
-};
+const apiBase = '/api';
+const apiFetch = (resource, options = {}) =>
+  fetch(`${apiBase}${resource}`, { ...options, credentials: 'include' });
 const defaultCategories = ['Breakfast', 'Lunch', 'Dinner', 'Drinks', 'Snacks / Food', 'Coffee / Tea', 'Groceries', 'Transport', 'Shopping', 'Entertainment', 'Medical', 'Bills', 'Hotel', 'Travel', 'Fuel', 'Parking', 'Education', 'Subscription', 'Other'];
 const defaultCurrencies = ['SGD', 'INR', 'USD', 'MYR', 'EUR', 'GBP', 'JPY', 'AUD', 'AED'];
 
