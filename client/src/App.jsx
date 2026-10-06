@@ -46,6 +46,23 @@ import {
 const apiBase = '/api';
 const apiFetch = (resource, options = {}) =>
   fetch(`${apiBase}${resource}`, { ...options, credentials: 'include' });
+const readApiResponse = async (response) => {
+  const responseText = await response.text();
+
+  try {
+    return JSON.parse(responseText);
+  } catch {
+    const isHtml = response.headers.get('content-type')?.includes('text/html') ||
+      /^\s*</.test(responseText);
+    if (isHtml) {
+      throw new Error(
+        `The API returned a web page instead of JSON (HTTP ${response.status}). ` +
+        'Vercel did not route this request to the Express API. Confirm the latest deployment includes the api folder and that the Vercel Root Directory is the repository root.'
+      );
+    }
+    throw new Error(`The API returned an invalid response (HTTP ${response.status}). Please try again.`);
+  }
+};
 const defaultCategories = ['Breakfast', 'Lunch', 'Dinner', 'Drinks', 'Snacks / Food', 'Coffee / Tea', 'Groceries', 'Transport', 'Shopping', 'Entertainment', 'Medical', 'Bills', 'Hotel', 'Travel', 'Fuel', 'Parking', 'Education', 'Subscription', 'Other'];
 const defaultCurrencies = ['SGD', 'INR', 'USD', 'MYR', 'EUR', 'GBP', 'JPY', 'AUD', 'AED'];
 
@@ -218,7 +235,7 @@ function LoginPage({ onLoginSuccess, initialError }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password, remember: form.remember })
       });
-      const payload = await response.json();
+      const payload = await readApiResponse(response);
 
       if (!response.ok || !payload.success) {
         setError(payload.message || 'Invalid email or password');
@@ -331,7 +348,7 @@ function SignupPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fullName, email, password, confirmPassword })
       });
-      const payload = await response.json();
+      const payload = await readApiResponse(response);
 
       if (!response.ok || !payload.success) {
         setError(payload.message || 'Unable to create account');
@@ -419,7 +436,7 @@ export default function App() {
       try {
         const response = await apiFetch('/auth/session');
         if (response.status === 401) return;
-        const payload = await response.json();
+        const payload = await readApiResponse(response);
         if (!response.ok || !payload.success || !payload.data?.user) {
           throw new Error(payload.message || 'Unable to verify your session');
         }
