@@ -9,7 +9,7 @@ A personal expense dashboard built with React, Node.js, and Supabase. Supabase A
    - `VITE_SUPABASE_URL`: the Supabase project URL.
    - `VITE_SUPABASE_PUBLISHABLE_KEY`: the project's browser-safe publishable key. A legacy anon key is also accepted. Never use a secret/service-role key in the client.
 3. In the Supabase SQL Editor, run [`supabase/migrations/202610070001_expense_schema.sql`](./supabase/migrations/202610070001_expense_schema.sql).
-4. In Supabase Authentication settings, configure the site URL and redirect URLs for `http://localhost:5173` and your deployed Vercel domain. Configure email confirmation to match your sign-up experience.
+4. In Supabase Authentication → URL Configuration, set the Site URL to your production domain and add that domain plus `http://localhost:5173` to the Redirect URLs allow-list. For Vercel, set `VITE_APP_URL` to the production origin (for example, `https://expense-gjae.vercel.app`) so signup confirmation, resend, and password-reset links return to the deployed app. Leave it unset locally to use the current local origin.
 5. Run `npm run dev` and open `http://localhost:5173`. The UI talks directly to Supabase; `npm run dev:server` is optional and starts the Node health endpoint separately.
 
 If the Supabase variables are not configured, the client shows setup instructions rather than silently falling back to local/demo data.
@@ -32,6 +32,6 @@ Reports support daily, weekly, monthly, yearly, and custom date ranges. “Save 
 
 ## Vercel
 
-Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` in the Vercel project environment for every deployment environment, then redeploy. Keep the repository root as the project root. The Supabase URL and publishable key are public client configuration; access control is enforced by Supabase RLS, not by hiding the key. Never configure a secret/service-role key as a `VITE_` variable.
+Set `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, and `VITE_APP_URL=https://expense-gjae.vercel.app` in the Vercel Production environment, then redeploy. Keep the repository root as the project root. The Supabase URL, publishable key, and app URL are public client configuration; access control is enforced by Supabase RLS, not by hiding these values. Never configure a secret/service-role key as a `VITE_` variable.
 
 The former SQLite/XLSX-backed API and demo seed data are no longer used. Existing local SQLite or workbook records are not imported automatically; export and migrate any records you need before retiring those local files.

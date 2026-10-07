@@ -37,6 +37,7 @@ const formatAmount = (amount, currency) => {
 const formatDate = (date) => new Date(`${date}T00:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 const displayName = (expense) => expense.custom_item || expense.categories?.name || 'Expense';
 const errorMessage = (error) => error?.message || 'Something went wrong. Please try again.';
+const authRedirectUrl = () => import.meta.env.VITE_APP_URL?.trim() || window.location.origin;
 
 function dateRange(period, from, to) {
   const end = today();
@@ -117,14 +118,16 @@ function AuthPage() {
           password: form.password,
           options: {
             data: { display_name: form.name.trim() },
-            emailRedirectTo: window.location.origin
+            emailRedirectTo: authRedirectUrl()
           }
         });
         if (authError) throw authError;
         setNotice(data.session ? 'Account created. Your secure workspace is ready.' : 'Account created. Check your email to confirm your address, then sign in.');
         setMode('login');
       } else if (mode === 'reset') {
-        const { error: authError } = await supabase.auth.resetPasswordForEmail(form.email.trim());
+        const { error: authError } = await supabase.auth.resetPasswordForEmail(form.email.trim(), {
+          redirectTo: authRedirectUrl()
+        });
         if (authError) throw authError;
         setNotice('If an account exists for that email, a password reset link has been sent.');
       } else {
@@ -158,7 +161,7 @@ function AuthPage() {
       const { error: resendError } = await supabase.auth.resend({
         type: 'signup',
         email: form.email.trim(),
-        options: { emailRedirectTo: window.location.origin }
+        options: { emailRedirectTo: authRedirectUrl() }
       });
       if (resendError) throw resendError;
       setConfirmationRequired(false);
@@ -334,6 +337,7 @@ function AuthenticatedApp({ user }) {
               <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </Routes>}
         </div>
+        <footer className="app-footer">Designed and Maintained by G Sureshkumar</footer>
       </main>
       {toast && <div className="toast" role="status"><Check size={17} />{toast}</div>}
     </div>
@@ -413,7 +417,7 @@ function DashboardPage({ expenses, currencies }) {
     <section className="stats-grid"><StatCard label="In selected period" value={formatAmount(spend, activeCurrency)} note={`${currencyExpenses.length} transactions in ${activeCurrency}`} icon={Wallet} /><StatCard label="All transactions" value={periodExpenses.length} note={`${range.from === range.to ? formatDate(range.from) : `${formatDate(range.from)} – ${formatDate(range.to)}`}`} icon={Receipt} color="mint" /><StatCard label="Top category" value={categories[0]?.name || '—'} note={categories[0] ? formatAmount(categories[0].amount, activeCurrency) : 'No recorded spend'} icon={BarChart3} color="amber" /><StatCard label="Average expense" value={formatAmount(currencyExpenses.length ? spend / currencyExpenses.length : 0, activeCurrency)} note="Per transaction" icon={CircleDollarSign} color="violet" /></section>
     <section className="dashboard-charts">
       <article className="panel chart-panel"><div className="panel-heading"><div><h3>Spending trend</h3><p>Amount spent by day · {activeCurrency}</p></div><span className="chart-legend"><i /> Spend</span></div>{daily.length ? <ResponsiveContainer width="100%" height={260}><AreaChart data={daily} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}><defs><linearGradient id="spendFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#5366f4" stopOpacity={0.22} /><stop offset="95%" stopColor="#5366f4" stopOpacity={0} /></linearGradient></defs><CartesianGrid stroke="#eef0f5" vertical={false} /><XAxis dataKey="date" tickLine={false} axisLine={false} tick={{ fill: '#9399a9', fontSize: 11 }} /><YAxis tickLine={false} axisLine={false} tick={{ fill: '#9399a9', fontSize: 11 }} /><Tooltip formatter={(value) => formatAmount(value, activeCurrency)} /><Area type="monotone" dataKey="amount" stroke="#5366f4" strokeWidth={2.5} fill="url(#spendFill)" /></AreaChart></ResponsiveContainer> : <ChartEmpty />}</article>
-      <article className="panel chart-panel"><div className="panel-heading"><div><h3>Where it goes</h3><p>Category split · {activeCurrency}</p></div></div>{categories.length ? <div className="donut-wrap"><ResponsiveContainer width="100%" height={230}><PieChart><Pie data={categories} dataKey="amount" nameKey="name" innerRadius={58} outerRadius={88} paddingAngle={3} stroke="none">{categories.map((entry, index) => <Cell key={entry.name} fill={colors[index % colors.length]} />)}</Pie><Tooltip formatter={(value) => formatAmount(value, activeCurrency)} /></PieChart></ResponsiveContainer><div className="legend-list">{categories.slice(0, 4).map((item, index) => <div key={item.name}><span><i style={{ background: colors[index % colors.length] }} />{item.name}</span><strong>{formatAmount(item.amount, activeCurrency)}</strong></div>)}</div></div> : <ChartEmpty />}</article>
+      <article className="panel chart-panel"><div className="panel-heading"><div><h3>Where it goes</h3><p>Category split · {activeCurrency}</p></div></div>{categories.length ? <div className="donut-wrap"><div className="donut-chart"><ResponsiveContainer width="100%" height={230}><PieChart margin={{ top: 8, right: 8, bottom: 8, left: 8 }}><Pie data={categories} dataKey="amount" nameKey="name" innerRadius="56%" outerRadius="82%" paddingAngle={3} stroke="none">{categories.map((entry, index) => <Cell key={entry.name} fill={colors[index % colors.length]} />)}</Pie><Tooltip formatter={(value) => formatAmount(value, activeCurrency)} /></PieChart></ResponsiveContainer></div><div className="legend-list">{categories.slice(0, 4).map((item, index) => <div key={item.name}><span><i style={{ background: colors[index % colors.length] }} />{item.name}</span><strong>{formatAmount(item.amount, activeCurrency)}</strong></div>)}</div></div> : <ChartEmpty />}</article>
     </section>
     <section className="panel recent-panel"><div className="panel-heading"><div><h3>Recent expenses</h3><p>Your latest recorded spending.</p></div><Link className="text-link" to="/dashboard/expenses">View all <ArrowRight size={15} /></Link></div><ExpenseTable expenses={recent} currencies={currencies} /></section>
     <div className="section-footnote"><ShieldCheck size={15} /> No currency conversion is applied. View totals by currency to compare accurately.</div>
