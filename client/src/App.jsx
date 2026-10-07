@@ -7,7 +7,7 @@ import {
 import {
   ArrowDownToLine, ArrowRight, BarChart3, CalendarDays, Check, ChevronDown,
   CircleDollarSign, FileText, LayoutDashboard, LogOut, Menu, Plus, Receipt,
-  Search, Settings, ShieldCheck, Sparkles, Wallet, X
+  Pencil, Search, Settings, ShieldCheck, Sparkles, Trash2, Wallet, X
 } from 'lucide-react';
 import { isSupabaseConfigured, supabase } from './lib/supabase';
 
@@ -286,11 +286,18 @@ function AuthenticatedApp({ user }) {
     if (error) setToast(error.message);
   };
   const removeExpense = async (id) => {
-    if (!window.confirm('Delete this expense? This cannot be undone.')) return;
+    if (!window.confirm('Delete this expense? This cannot be undone.')) return false;
     const { error } = await supabase.from('expenses').delete().eq('id', id);
-    if (error) { setToast(error.message); return; }
+    if (error) { setToast(error.message); return false; }
     setExpenses((rows) => rows.filter((expense) => expense.id !== id));
     setToast('Expense deleted');
+    return true;
+  };
+  const updateExpense = async (id, payload) => {
+    const { error } = await supabase.from('expenses').update(payload).eq('id', id);
+    if (error) throw error;
+    setExpenses(await fetchExpenses());
+    setToast('Expense updated');
   };
   const navigation = [
     { to: '/dashboard', label: 'Overview', icon: LayoutDashboard, end: true },
@@ -330,7 +337,7 @@ function AuthenticatedApp({ user }) {
               <Route index element={<DashboardPage expenses={expenses} currencies={currencies} />} />
               <Route path="add-expense" element={<AddExpensePage expenses={expenses} categories={categories} currencies={currencies} user={user} reload={reload} setToast={setToast} />} />
               <Route path="add-expense/:id" element={<AddExpensePage expenses={expenses} categories={categories} currencies={currencies} user={user} reload={reload} setToast={setToast} />} />
-              <Route path="expenses" element={<ExpensesPage expenses={expenses} currencies={currencies} onDelete={removeExpense} />} />
+              <Route path="expenses" element={<ExpensesPage expenses={expenses} categories={categories} currencies={currencies} onDelete={removeExpense} onUpdate={updateExpense} />} />
               <Route path="reports" element={<ReportsPage expenses={expenses} currencies={currencies} />} />
               <Route path="charts" element={<ChartsPage expenses={expenses} currencies={currencies} />} />
               <Route path="profile" element={<ProfilePage user={user} profile={profile} reload={reload} setToast={setToast} />} />
@@ -369,12 +376,12 @@ function CurrencyTotals({ expenses }) {
   }, {}), [expenses]);
   return <div className="currency-totals">{Object.entries(totals).sort(([a], [b]) => a.localeCompare(b)).map(([currency, amount]) => <div className="currency-total" key={currency}><span>{currency}</span><strong>{formatAmount(amount, currency)}</strong></div>)}</div>;
 }
-function ExpenseTable({ expenses, currencies, onDelete, showActions = false, emptyTitle = 'No expenses yet', emptyCopy = 'Add your first expense to see it here.' }) {
+function ExpenseTable({ expenses, onDelete, onEdit, editingId, showActions = false, emptyTitle = 'No expenses yet', emptyCopy = 'Add your first expense to see it here.' }) {
   if (!expenses.length) return <div className="empty-state"><span className="empty-icon"><Receipt size={22} /></span><strong>{emptyTitle}</strong><p>{emptyCopy}</p><Link className="text-link" to="/dashboard/add-expense">Add an expense <ArrowRight size={15} /></Link></div>;
   return <div className="table-scroll"><table><thead><tr><th>ITEM</th><th>CATEGORY</th><th>DATE</th><th>NOTES</th><th className="align-right">AMOUNT</th>{showActions && <th />}</tr></thead><tbody>{expenses.map((expense) => <tr key={expense.id}>
     <td><div className="expense-title"><span className="category-dot" style={{ background: colors[Math.abs((expense.categories?.slug || 'other').length * 7) % colors.length] }} /><strong>{displayName(expense)}</strong></div></td>
     <td><span className="category-pill">{expense.categories?.name || 'Other'}</span></td><td>{formatDate(expense.spent_on)}</td><td className="notes-cell">{expense.notes || <span className="muted">—</span>}</td>
-    <td className="align-right amount-cell">{formatAmount(expense.amount, expense.currency_code)}</td>{showActions && <td className="row-actions"><Link to={`/dashboard/add-expense/${expense.id}`} aria-label="Edit expense"><Settings size={15} /></Link><button onClick={() => onDelete(expense.id)} aria-label="Delete expense"><X size={15} /></button></td>}
+    <td className="align-right amount-cell">{formatAmount(expense.amount, expense.currency_code)}</td>{showActions && <td className="row-actions"><button className={editingId === expense.id ? 'is-active' : ''} onClick={() => onEdit(expense)} aria-label={`Edit ${displayName(expense)}`} aria-pressed={editingId === expense.id}><Pencil size={15} /></button><button className="delete-action" onClick={() => onDelete(expense.id)} aria-label={`Delete ${displayName(expense)}`}><Trash2 size={15} /></button></td>}
   </tr>)}</tbody></table></div>;
 }
 
@@ -452,7 +459,7 @@ function AddExpensePage({ expenses, categories, currencies, user, reload, setToa
       if (result.error) throw result.error;
       await reload();
       setToast(existing ? 'Expense updated' : 'Expense added');
-      navigate('/expenses');
+      navigate('/dashboard/expenses');
     } catch (saveError) {
       setError(errorMessage(saveError));
     } finally {
@@ -476,17 +483,56 @@ function AddExpensePage({ expenses, categories, currencies, user, reload, setToa
   </div>;
 }
 
-function ExpensesPage({ expenses, currencies, onDelete }) {
+function InlineExpenseEditor({ expense, categories, currencies, onCancel, onSave }) {
+  const [form, setForm] = useState(() => ({ categoryId: expense.category_id || '', customItem: expense.custom_item || '', amount: String(expense.amount), currency: expense.currency_code, date: expense.spent_on, notes: expense.notes || '' }));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const selectedCategory = categories.find((item) => item.id === form.categoryId);
+  const update = (field) => (event) => setForm((current) => ({ ...current, [field]: event.target.value }));
+  const submit = async (event) => {
+    event.preventDefault();
+    setError('');
+    if (!selectedCategory) { setError('Choose an expense category.'); return; }
+    if (!Number.isFinite(Number(form.amount)) || Number(form.amount) <= 0) { setError('Enter an amount greater than zero.'); return; }
+    if (selectedCategory.slug === 'other' && !form.customItem.trim()) { setError('Enter a name for this custom expense.'); return; }
+    setBusy(true);
+    try {
+      await onSave(expense.id, { category_id: form.categoryId, custom_item: selectedCategory.slug === 'other' ? form.customItem.trim() : null, amount: Number(form.amount), currency_code: form.currency, spent_on: form.date, notes: form.notes.trim() });
+      onCancel();
+    } catch (saveError) {
+      setError(errorMessage(saveError));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return <form className="inline-expense-editor" onSubmit={submit}>
+    <div className="inline-editor-heading"><div><span className="eyebrow">EDIT EXPENSE</span><h3>{displayName(expense)}</h3><p>Update this transaction without leaving the table.</p></div><button type="button" className="inline-editor-close" onClick={onCancel} aria-label="Close expense editor"><X size={18} /></button></div>
+    <div className="inline-editor-grid">
+      <Field label="Expense category"><select required value={form.categoryId} onChange={update('categoryId')}><option value="">Choose a category</option>{categories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
+      {selectedCategory?.slug === 'other' && <Field label="Custom expense name"><input required maxLength={120} value={form.customItem} onChange={update('customItem')} /></Field>}
+      <Field label="Amount"><input required type="number" min="0.01" step="0.01" value={form.amount} onChange={update('amount')} /></Field>
+      <Field label="Currency"><select value={form.currency} onChange={update('currency')}>{currencies.map((item) => <option key={item.code} value={item.code}>{item.code} · {item.name}</option>)}</select></Field>
+      <Field label="Date"><input required type="date" max={today()} value={form.date} onChange={update('date')} /></Field>
+      <Field label="Notes (optional)" className="inline-notes"><input maxLength={2000} value={form.notes} onChange={update('notes')} placeholder="Add a short note" /></Field>
+    </div>
+    {error && <div className="feedback error" role="alert">{error}</div>}
+    <div className="inline-editor-actions"><button type="button" className="button secondary" onClick={onCancel} disabled={busy}>Cancel</button><button type="submit" className="button primary" disabled={busy}>{busy ? 'Updating…' : 'Update expense'} <Check size={16} /></button></div>
+  </form>;
+}
+
+function ExpensesPage({ expenses, categories, currencies, onDelete, onUpdate }) {
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('all');
   const [currency, setCurrency] = useState('all');
+  const [editingId, setEditingId] = useState(null);
+  const editingExpense = expenses.find((expense) => expense.id === editingId);
   const categoryNames = [...new Set(expenses.map((item) => item.categories?.name || 'Other'))].sort();
   const filtered = expenses.filter((expense) => {
     const query = `${displayName(expense)} ${expense.categories?.name || ''} ${expense.notes || ''}`.toLowerCase();
     return query.includes(search.toLowerCase()) && (category === 'all' || expense.categories?.name === category) && (currency === 'all' || expense.currency_code === currency);
   });
   return <div className="page-stack"><PageHeading eyebrow="YOUR RECORDS" title="All expenses" description={`${expenses.length} ${expenses.length === 1 ? 'transaction' : 'transactions'} in your private ledger.`} action={<ButtonLink to="/dashboard/add-expense"><Plus size={17} /> Add expense</ButtonLink>} />
-    <section className="panel list-panel"><div className="list-toolbar"><div className="search-input"><Search size={17} /><input aria-label="Search expenses" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search item, category or note" /></div><div className="list-filters"><select aria-label="Filter by category" value={category} onChange={(event) => setCategory(event.target.value)}><option value="all">All categories</option>{categoryNames.map((name) => <option key={name}>{name}</option>)}</select><select aria-label="Filter by currency" value={currency} onChange={(event) => setCurrency(event.target.value)}><option value="all">All currencies</option>{currencies.map((item) => <option key={item.code}>{item.code}</option>)}</select></div></div><ExpenseTable expenses={filtered} currencies={currencies} onDelete={onDelete} showActions emptyTitle="No matching expenses" emptyCopy={search || category !== 'all' || currency !== 'all' ? 'Try adjusting your search or filters.' : 'Add your first expense to get started.'} /></section>
+    <section className="panel list-panel"><div className="list-toolbar"><div className="search-input"><Search size={17} /><input aria-label="Search expenses" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search item, category or note" /></div><div className="list-filters"><select aria-label="Filter by category" value={category} onChange={(event) => setCategory(event.target.value)}><option value="all">All categories</option>{categoryNames.map((name) => <option key={name}>{name}</option>)}</select><select aria-label="Filter by currency" value={currency} onChange={(event) => setCurrency(event.target.value)}><option value="all">All currencies</option>{currencies.map((item) => <option key={item.code}>{item.code}</option>)}</select></div></div>{editingExpense && <InlineExpenseEditor key={editingExpense.id} expense={editingExpense} categories={categories} currencies={currencies} onCancel={() => setEditingId(null)} onSave={onUpdate} />}<ExpenseTable expenses={filtered} onDelete={async (id) => { const deleted = await onDelete(id); if (deleted && editingId === id) setEditingId(null); }} onEdit={(expense) => setEditingId((current) => current === expense.id ? null : expense.id)} editingId={editingId} showActions emptyTitle="No matching expenses" emptyCopy={search || category !== 'all' || currency !== 'all' ? 'Try adjusting your search or filters.' : 'Add your first expense to get started.'} /></section>
   </div>;
 }
 
